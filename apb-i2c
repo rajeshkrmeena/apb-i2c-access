@@ -51,7 +51,7 @@
 #include "xparameters.h"
 #include "xil_io.h"
 
-//#define ENABLE_DEBUG_LOG    // disable DEBUG_LOG
+#define ENABLE_DEBUG_LOG    // disable DEBUG_LOG
 
 #ifdef ENABLE_DEBUG_LOG
 #define LOG_D(x)  {  printf("DEBUG :");  printf(x);}
@@ -82,7 +82,7 @@
 
 
 //#define ENABLE_CLOCK_INFO
-#define SYSTEM_FREQ 200000000
+#define SYSTEM_FREQ 25000000
 #define SCL_FREQ    100000
 
 // I2C Standard----
@@ -90,6 +90,11 @@
 #define READ    1
 uint8_t init_value;
 uint8_t global_i;
+
+
+uint8_t wr_arr[16];
+uint8_t rd_arr[16];
+
 
 //------------Checking a bit is Set (1) or not -------------------
 
@@ -262,7 +267,7 @@ uint8_t Is_NACK()
 
 }
 
-//-----------------Writing data uint8_to TxFF while it is full
+//-----------------Writing continous data uint8_to TxFF while it is full
 void write_data_fifo (uint8_t value, uint8_t No_txn)
 {
 	uint8_t i=0;
@@ -280,6 +285,23 @@ void write_data_fifo (uint8_t value, uint8_t No_txn)
 }
 
 
+void write_random_data (uint8_t start_add, uint8_t No_txn)
+{
+	uint8_t val=0;
+
+ 	while(No_txn) {
+
+ 	   val = rand() % 255;
+       wr_arr[start_add++] = val ;
+	   Xil_Out8(BASEADDR+REG_TxFF, val);
+	   --No_txn;
+	  //printf(" Write data : %d \n", val);
+
+ 	}
+
+}
+
+
 //-------------------WRITE_OPERTION----------------------
 void write_opertion (uint8_t start_add, uint8_t start_val, uint8_t  no_txn)
 {
@@ -290,17 +312,19 @@ void write_opertion (uint8_t start_add, uint8_t start_val, uint8_t  no_txn)
 
     chk_clr_TxFIFo();
 
-    set_clock(SYSTEM_FREQ, SCL_FREQ);      //setting the value of CHL, CHH, CHHL, CHHH
+   // set_clock(SYSTEM_FREQ, SCL_FREQ);      //setting the value of CHL, CHH, CHHL, CHHH
 
     RESTART_ :
 
     start_stop_write(START);
     slv_addr(start_add, WRITE);
-    write_data_fifo (start_val, no_txn);
+
+   // write_data_fifo (start_val, no_txn);
+    write_random_data(start_add, FULL);
 
     while(!Is_TxCompl())                         // Waiting for Tx Complete
  	   ;
-    LOG_D(" Tx is completed... Let's Check NACK... ");
+    LOG_D(" Tx is completed... Let's Check NACK...\n ");
 
     if(Is_NACK()){
     	LOG_D(" NACK is asserted... Please, Restart Process...\n ");
@@ -390,13 +414,15 @@ void read_opertion (uint8_t Start_Addr,  uint8_t read_bytes)
     uint8_t value = 0;
     uint8_t cmpr = 0;
 
+    uint8_t i =  Start_Addr;
+
     LOG_D(" \n*** Start Read Operation... *** \n ");
 
     RESTART_ :
 
     chk_clr_TxFIFo();
 
-    set_clock(SYSTEM_FREQ, SCL_FREQ);      //setting the value of CHL, CHH, CHHL, CHHH
+   // set_clock(SYSTEM_FREQ, SCL_FREQ);      //setting the value of CHL, CHH, CHHL, CHHH
 
     start_seq = read_bytes <<2;
     start_seq++;
@@ -424,24 +450,31 @@ void read_opertion (uint8_t Start_Addr,  uint8_t read_bytes)
     LOG_D("Waiting for RX completion \n ");
 //    Is_RxFIFO_Empty();
 
-    while(!Is_RxFIFO_Empty())
+    //uint8_t value=0;
+    	value = Xil_In8(BASEADDR+REG_SR0);
+
+    	printf(" SRO_value:  0x%x \n",value );
+
+    	while(!Is_RxFIFO_Empty())
      {
         value = Xil_In8(BASEADDR+REG_RxFF); // Reading of RX FIFO till it empty
+        printf(" value:  0x%x \n",value );
 
-         cmpr = compare_value(value);
+         rd_arr[i++] = value;
 
-         if(!cmpr)
-            break;
+    //  cmpr = compare_value(value);
+    //     if(!cmpr)
+     //       break;
 
-         ++global_i ;
+     //    ++global_i ;
 
      }
 
-   if(global_i==read_bytes)
+ /*  if(global_i==read_bytes)
 	   LOG_D(" Read Value is MATCHED with Write \n");
 
    global_i=0;
-
+*/
     while(!stop_flag())        // waiting for STOP FLAG
                    ;
     start_stop_write(STOP);
@@ -469,20 +502,47 @@ int main()
  //    write_opertion(START_ADD, START_VALUE, No_of_TXN);  //
  ///////////////////////////////////////////////////////////
 
-   //write_opertion(0x00, 0x01, FULL);
+   write_opertion(0x00, 0x00, FULL);
 
 	 //  write_opertion(0x00, 1, FULL);
-	 //  read_opertion(0x00, FULL);
+  read_opertion(0x00, 31);
 
 
 
-  /*  uint8_t START_ADD = 1;
 
-   for(uint8_t i=0; i<255; ++i)
+
+     for(int i = 0; i < 16; ++i){
+         printf(" ARR_VAL %d ---> %d \n", wr_arr[i], rd_arr[i]);
+     }
+
+
+
+
+    /*
+    uint8_t rnd_data;
+    uint8_t rnd_addr;
+    uint8_t rnd_byte;
+
+
+   uint8_t START_ADD ;
+   uint8_t START_DATA ;
+   uint8_t NO_BYTE;
+
+   for(uint8_t i=0; i<250; ++i)
    {
-	   write_opertion(START_ADD, 100+i, FULL);
-	   read_opertion(START_ADD, FULL);
+	   rnd_data = rand() % 255;
+	   rnd_addr = rand() % 16;
+       rnd_byte = rand() % 16;
+
+       START_ADD = rnd_addr;
+	   START_DATA = rnd_data;
+       NO_BYTE = rnd_byte;
+      if(NO_BYTE>0)
+      {
+       write_opertion(START_ADD, START_DATA, NO_BYTE);
+	   read_opertion(START_ADD, NO_BYTE);
 	   printf("Write and Read Operation %d is completed successfully \n ", i+1);
+      }
    }
 */
     printf("\n Tested the APB-I2C...\n");
@@ -490,6 +550,7 @@ int main()
     cleanup_platform();
     return 0;
 }
+
 
 
 
